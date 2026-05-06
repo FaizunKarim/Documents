@@ -1,129 +1,167 @@
 import { useEffect, useState } from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { FileText, Clock, CheckCircle, XCircle, AlertTriangle } from "lucide-react";
+import { useNavigate } from "react-router-dom";
+import { Card, CardContent } from "@/components/ui/card";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
+import { Loader2, Users, FileText, ChevronRight } from "lucide-react";
+import { useToast } from "@/hooks/use-toast";
 
-interface Stats {
-  total: number;
-  pending: number;
-  inProgress: number;
-  resolved: number;
-  rejected: number;
+interface Profile {
+  id: string;
+  user_id: string;
+  full_name: string | null;
+  email: string | null;
+}
+
+interface UserWithStats extends Profile {
+  reportCount: number;
 }
 
 export default function AdminDashboard() {
-  const [stats, setStats] = useState<Stats>({
-    total: 0,
-    pending: 0,
-    inProgress: 0,
-    resolved: 0,
-    rejected: 0,
-  });
+  const navigate = useNavigate();
+  const { toast } = useToast();
+  const [users, setUsers] = useState<UserWithStats[]>([]);
   const [loading, setLoading] = useState(true);
 
+  const getInitials = (name: string | null) => {
+    if (!name) return "?";
+    return name.split(" ").map(n => n[0]).join("").toUpperCase().slice(0, 2);
+  };
+
   useEffect(() => {
-    const fetchStats = async () => {
+    const fetchAllUsers = async () => {
       try {
-        const { data, error } = await supabase.from("reports").select("status");
+        const { data: profilesData, error: profilesError } = await supabase
+          .from("profiles")
+          .select("*")
+          .order("full_name");
 
-        if (error) throw error;
+        if (profilesError) throw profilesError;
 
-        const newStats: Stats = {
-          total: data.length,
-          pending: data.filter((r) => r.status === "pending").length,
-          inProgress: data.filter((r) => r.status === "in_progress").length,
-          resolved: data.filter((r) => r.status === "resolved").length,
-          rejected: data.filter((r) => r.status === "rejected").length,
-        };
+        // Get report count for each user
+        const { data: reportsData, error: reportsError } = await supabase
+          .from("reports")
+          .select("user_id");
 
-        setStats(newStats);
+        if (reportsError) throw reportsError;
+
+        const reportCounts = new Map<string, number>();
+        reportsData?.forEach(r => {
+          reportCounts.set(r.user_id, (reportCounts.get(r.user_id) || 0) + 1);
+        });
+
+        const usersWithStats: UserWithStats[] = profilesData?.map(profile => ({
+          ...profile,
+          reportCount: reportCounts.get(profile.user_id) || 0
+        })) || [];
+
+        setUsers(usersWithStats);
+
       } catch (error) {
-        console.error("Error fetching stats:", error);
+        console.error("Error fetching users:", error);
+        toast({
+          title: "Error",
+          description: "Gagal memuat daftar mahasiswa",
+          variant: "destructive",
+        });
       } finally {
         setLoading(false);
       }
     };
 
-    fetchStats();
-  }, []);
+    fetchAllUsers();
+  }, [toast]);
 
-  const statCards = [
-    {
-      title: "Total Laporan",
-      value: stats.total,
-      icon: FileText,
-      color: "text-blue-500",
-      bgColor: "bg-blue-500/10",
-    },
-    {
-      title: "Menunggu",
-      value: stats.pending,
-      icon: Clock,
-      color: "text-yellow-500",
-      bgColor: "bg-yellow-500/10",
-    },
-    {
-      title: "Diproses",
-      value: stats.inProgress,
-      icon: AlertTriangle,
-      color: "text-orange-500",
-      bgColor: "bg-orange-500/10",
-    },
-    {
-      title: "Selesai",
-      value: stats.resolved,
-      icon: CheckCircle,
-      color: "text-green-500",
-      bgColor: "bg-green-500/10",
-    },
-    {
-      title: "Ditolak",
-      value: stats.rejected,
-      icon: XCircle,
-      color: "text-red-500",
-      bgColor: "bg-red-500/10",
-    },
-  ];
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
       <div>
         <h1 className="text-3xl font-bold">Dashboard Admin</h1>
-        
+        <p className="text-muted-foreground mt-1">Kelola dan lihat logbook semua mahasiswa</p>
       </div>
 
-      {/* Stats Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
-        {statCards.map((stat) => (
-          <Card key={stat.title}>
-            <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground">
-                {stat.title}
-              </CardTitle>
-              <div className={`p-2 rounded-lg ${stat.bgColor}`}>
-                <stat.icon className={`h-4 w-4 ${stat.color}`} />
+      {/* Summary Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <Card>
+          <CardContent className="p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-muted-foreground">Total Mahasiswa</p>
+                <p className="text-3xl font-bold mt-1">{users.length}</p>
               </div>
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">
-                {loading ? "-" : stat.value}
+              <div className="p-3 rounded-lg bg-blue-500/10">
+                <Users className="h-6 w-6 text-blue-500" />
               </div>
+            </div>
+          </CardContent>
+        </Card>
+        
+        <Card>
+          <CardContent className="p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-muted-foreground">Total Logbook Entri</p>
+                <p className="text-3xl font-bold mt-1">
+                  {users.reduce((sum, u) => sum + u.reportCount, 0)}
+                </p>
+              </div>
+              <div className="p-3 rounded-lg bg-green-500/10">
+                <FileText className="h-6 w-6 text-green-500" />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Users List */}
+      <div className="space-y-4">
+        <h2 className="text-xl font-semibold">Daftar Mahasiswa</h2>
+        
+        {users.length === 0 ? (
+          <Card>
+            <CardContent className="py-12 text-center">
+              <p className="text-muted-foreground">Belum ada mahasiswa yang terdaftar</p>
             </CardContent>
           </Card>
-        ))}
+        ) : (
+          <div className="space-y-3">
+            {users.map((user) => (
+              <Card key={user.id} className="cursor-pointer hover:shadow-md transition-all" onClick={() => navigate(`/admin/student/${user.user_id}`)}>
+                <CardContent className="p-4">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-4">
+                      <Avatar>
+                        <AvatarFallback className="bg-primary text-primary-foreground">
+                          {getInitials(user.full_name)}
+                        </AvatarFallback>
+                      </Avatar>
+                      <div>
+                        <p className="font-medium">{user.full_name || "Mahasiswa"}</p>
+                        <p className="text-sm text-muted-foreground">{user.email || "-"}</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-4">
+                      <div className="text-right">
+                        <p className="font-medium">{user.reportCount}</p>
+                        <p className="text-xs text-muted-foreground">Logbook</p>
+                      </div>
+                      <ChevronRight className="h-5 w-5 text-muted-foreground" />
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        )}
       </div>
-
-      {/* Quick Actions */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Aksi Cepat</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <p className="text-muted-foreground">
-            Gunakan menu <strong>Kelola Laporan</strong> di sidebar untuk melihat, mengubah status, atau menghapus laporan warga.
-          </p>
-        </CardContent>
-      </Card>
     </div>
   );
 }

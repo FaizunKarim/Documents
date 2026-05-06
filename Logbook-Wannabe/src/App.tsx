@@ -7,12 +7,10 @@ import { AuthProvider } from "@/hooks/useAuth";
 import Auth from "./pages/Auth";
 import DashboardLayout from "./components/DashboardLayout";
 import Beranda from "./pages/dashboard/Beranda";
-import Notifikasi from "./pages/dashboard/Notifikasi";
-import LaporanSaya from "./pages/dashboard/LaporanSaya";
 import NotFound from "./pages/NotFound";
 import { AdminLayout } from "./components/AdminLayout";
 import AdminDashboard from "./pages/admin/AdminDashboard";
-import KelolaLaporan from "./pages/admin/KelolaLaporan";
+import StudentDetail from "./pages/admin/StudentDetail";
 
 const queryClient = new QueryClient();
 
@@ -28,12 +26,10 @@ const App = () => (
             <Route path="/auth" element={<Auth />} />
             <Route path="/dashboard" element={<DashboardLayout />}>
               <Route index element={<Beranda />} />
-              <Route path="notifikasi" element={<Notifikasi />} />
-              <Route path="laporan-saya" element={<LaporanSaya />} />
             </Route>
             <Route path="/admin" element={<AdminLayout />}>
               <Route index element={<AdminDashboard />} />
-              <Route path="laporan" element={<KelolaLaporan />} />
+              <Route path="student/:userId" element={<StudentDetail />} />
             </Route>
             <Route path="*" element={<NotFound />} />
           </Routes>

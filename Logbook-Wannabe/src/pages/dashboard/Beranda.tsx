@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, MessageCircle, Send, Plus, MapPin, Image as ImageIcon, X } from "lucide-react";
+import { Loader2, Plus, MapPin, Image as ImageIcon, X } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
@@ -32,13 +32,6 @@ interface Report {
   profile?: Profile | null;
 }
 
-interface Comment {
-  id: string;
-  content: string;
-  created_at: string;
-  user_id: string;
-  profile?: Profile | null;
-}
 
 const statusColors: Record<string, string> = {
   pending: "bg-yellow-500",
@@ -54,24 +47,12 @@ const statusLabels: Record<string, string> = {
   resolved: "Selesai",
 };
 
-const categories = [
-  "Jalan Rusak",
-  "Lampu PJU",
-  "Sampah",
-  "Saluran Air",
-  "Fasilitas Umum",
-  "Lainnya",
-];
 
 const Beranda = () => {
   const { user } = useAuth();
   const { toast } = useToast();
   const [reports, setReports] = useState<Report[]>([]);
   const [loading, setLoading] = useState(true);
-  const [expandedComments, setExpandedComments] = useState<string | null>(null);
-  const [comments, setComments] = useState<Record<string, Comment[]>>({});
-  const [newComment, setNewComment] = useState("");
-  const [submittingComment, setSubmittingComment] = useState(false);
   
   // New report form
   const [isDialogOpen, setIsDialogOpen] = useState(false);
@@ -87,12 +68,12 @@ const Beranda = () => {
   useEffect(() => {
     fetchReports();
 
-    // Subscribe to realtime updates
+    // Subscribe to realtime updates only for current user reports
     const channel = supabase
       .channel('reports-changes')
       .on(
         'postgres_changes',
-        { event: '*', schema: 'public', table: 'reports' },
+        { event: '*', schema: 'public', table: 'reports', filter: `user_id=eq.${user.id}` },
         () => {
           fetchReports();
         }
@@ -105,10 +86,12 @@ const Beranda = () => {
   }, []);
 
   const fetchReports = async () => {
+    if (!user) return;
+    
     const { data: reportsData, error } = await supabase
       .from("reports")
       .select("*")
-      .eq("is_public", true)
+      .eq("user_id", user.id)
       .order("created_at", { ascending: false });
 
     if (error) {
@@ -140,69 +123,6 @@ const Beranda = () => {
     setLoading(false);
   };
 
-  const fetchComments = async (reportId: string) => {
-    const { data: commentsData, error } = await supabase
-      .from("comments")
-      .select("*")
-      .eq("report_id", reportId)
-      .order("created_at", { ascending: true });
-
-    if (!error && commentsData) {
-      // Fetch profiles for comment authors
-      const userIds = [...new Set(commentsData.map(c => c.user_id))];
-      const { data: profilesData } = await supabase
-        .from("profiles")
-        .select("*")
-        .in("user_id", userIds);
-
-      const profilesMap = new Map(profilesData?.map(p => [p.user_id, p]) || []);
-      
-      const commentsWithProfiles = commentsData.map(comment => ({
-        ...comment,
-        profile: profilesMap.get(comment.user_id) || null,
-      }));
-
-      setComments((prev) => ({ ...prev, [reportId]: commentsWithProfiles }));
-    }
-  };
-
-  const toggleComments = async (reportId: string) => {
-    if (expandedComments === reportId) {
-      setExpandedComments(null);
-    } else {
-      setExpandedComments(reportId);
-      if (!comments[reportId]) {
-        await fetchComments(reportId);
-      }
-    }
-  };
-
-  const handleSubmitComment = async (reportId: string) => {
-    if (!newComment.trim() || !user) return;
-
-    setSubmittingComment(true);
-    const { error } = await supabase.from("comments").insert({
-      report_id: reportId,
-      user_id: user.id,
-      content: newComment.trim(),
-    });
-
-    if (error) {
-      toast({
-        title: "Error",
-        description: "Gagal mengirim komentar",
-        variant: "destructive",
-      });
-    } else {
-      setNewComment("");
-      await fetchComments(reportId);
-      toast({
-        title: "Berhasil",
-        description: "Komentar terkirim",
-      });
-    }
-    setSubmittingComment(false);
-  };
 
   const handleCreateReport = async () => {
     if (!newReport.title || !newReport.description || !newReport.category || !user) {
@@ -335,42 +255,6 @@ const Beranda = () => {
                 />
               </div>
 
-              {/* Category & Location Row */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="category" className="text-sm font-medium">
-                    Kategori <span className="text-destructive">*</span>
-                  </Label>
-                  <Select
-                    value={newReport.category}
-                    onValueChange={(value) => setNewReport({ ...newReport, category: value })}
-                  >
-                    <SelectTrigger className="h-11">
-                      <SelectValue placeholder="Pilih kategori" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {categories.map((cat) => (
-                        <SelectItem key={cat} value={cat}>
-                          {cat}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="location" className="text-sm font-medium">Lokasi</Label>
-                  <div className="relative">
-                    <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                    <Input
-                      id="location"
-                      className="pl-10 h-11"
-                      placeholder="Jl. Ahmad Yani No. 10"
-                      value={newReport.location}
-                      onChange={(e) => setNewReport({ ...newReport, location: e.target.value })}
-                    />
-                  </div>
-                </div>
-              </div>
 
               {/* Description */}
               <div className="space-y-2">
@@ -508,72 +392,6 @@ const Beranda = () => {
                 </div>
               )}
             </CardContent>
-            <CardFooter className="flex-col items-stretch border-t pt-4">
-              <Button
-                variant="ghost"
-                className="justify-start gap-2"
-                onClick={() => toggleComments(report.id)}
-              >
-                <MessageCircle className="h-4 w-4" />
-                <span>Komentar</span>
-              </Button>
-
-              {expandedComments === report.id && (
-                <div className="mt-4 space-y-4">
-                  {comments[report.id]?.length === 0 ? (
-                    <p className="text-sm text-muted-foreground text-center py-4">
-                      Belum ada komentar
-                    </p>
-                  ) : (
-                    comments[report.id]?.map((comment) => (
-                      <div key={comment.id} className="flex gap-3">
-                        <Avatar className="h-8 w-8">
-                          <AvatarFallback className="text-xs bg-muted">
-                            {getInitials(comment.profile?.full_name || null)}
-                          </AvatarFallback>
-                        </Avatar>
-                        <div className="flex-1 bg-muted rounded-lg p-3">
-                          <div className="flex items-center gap-2">
-                            <span className="font-medium text-sm">
-                              {comment.profile?.full_name || "Anonim"}
-                            </span>
-                            <span className="text-xs text-muted-foreground">
-                              {formatDate(comment.created_at)}
-                            </span>
-                          </div>
-                          <p className="text-sm mt-1">{comment.content}</p>
-                        </div>
-                      </div>
-                    ))
-                  )}
-
-                  <div className="flex gap-2">
-                    <Input
-                      placeholder="Tulis komentar..."
-                      value={newComment}
-                      onChange={(e) => setNewComment(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter" && !e.shiftKey) {
-                          e.preventDefault();
-                          handleSubmitComment(report.id);
-                        }
-                      }}
-                    />
-                    <Button
-                      size="icon"
-                      onClick={() => handleSubmitComment(report.id)}
-                      disabled={submittingComment || !newComment.trim()}
-                    >
-                      {submittingComment ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                      ) : (
-                        <Send className="h-4 w-4" />
-                      )}
-                    </Button>
-                  </div>
-                </div>
-              )}
-            </CardFooter>
           </Card>
         ))
       )}
